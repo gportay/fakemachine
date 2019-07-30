@@ -349,14 +349,14 @@ func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper) error {
 	}
 
 	modules := []string{
-		"kernel/drivers/char/virtio_console.ko",
-		"kernel/drivers/virtio/virtio.ko",
-		"kernel/drivers/virtio/virtio_pci.ko",
-		"kernel/net/9p/9pnet.ko",
-		"kernel/drivers/virtio/virtio_ring.ko",
-		"kernel/fs/9p/9p.ko",
-		"kernel/net/9p/9pnet_virtio.ko",
-		"kernel/fs/fscache/fscache.ko",
+		"kernel/drivers/char/virtio_console.ko.xz",
+		"kernel/drivers/virtio/virtio.ko.xz",
+		"kernel/drivers/virtio/virtio_pci.ko.xz",
+		"kernel/net/9p/9pnet.ko.xz",
+		"kernel/drivers/virtio/virtio_ring.ko.xz",
+		"kernel/fs/9p/9p.ko.xz",
+		"kernel/net/9p/9pnet_virtio.ko.xz",
+		"kernel/fs/fscache/fscache.ko.xz",
 		"modules.order",
 		"modules.builtin",
 		"modules.dep",
