@@ -339,7 +339,14 @@ func (m *Machine) kernelRelease() (string, error) {
 		return "", fmt.Errorf("No kernel found")
 	}
 
-	return (files[len(files)-1]).Name(), nil
+	/* FIXME Gross hack to get the right module directory on ArchLinux
+	 *   # ls -1 /usr/lib/modules
+	 *   5.2.4-arch1-1-ARCH
+	 *   extramodules-ARCH
+	 * mkosi filters out by checking that the first character is a number,
+	 * we could do the same I guess...
+	 */
+	return (files[len(files)-2]).Name(), nil
 }
 
 func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper) error {
