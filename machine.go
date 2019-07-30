@@ -464,8 +464,17 @@ func (m *Machine) startup(command string, extracontent [][2]string) (int, error)
 	if mergedUsrSystem() {
 		prefix = "/usr"
 	}
-	w.CopyFile(prefix + "/lib/x86_64-linux-gnu/libresolv.so.2")
-	w.CopyFile(prefix + "/lib/x86_64-linux-gnu/libc.so.6")
+
+	if _, err := os.Stat(prefix + "/lib/x86_64-linux-gnu/libresolv.so.2"); err == nil {
+		w.CopyFile(prefix + "/lib/x86_64-linux-gnu/libresolv.so.2")
+	} else {
+		w.CopyFile(prefix + "/lib/libresolv.so.2")
+	}
+	if _, err := os.Stat(prefix + "/lib/x86_64-linux-gnu/libc.so.6"); err == nil {
+		w.CopyFile(prefix + "/lib/x86_64-linux-gnu/libc.so.6")
+	} else {
+		w.CopyFile(prefix + "/lib/libc.so.6")
+	}
 	w.CopyFile(prefix + "/bin/busybox")
 
 	/* Amd64 dynamic linker */
