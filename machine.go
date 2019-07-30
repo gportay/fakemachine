@@ -374,8 +374,10 @@ func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper) error {
 		if mergedUsrSystem() {
 			usrpath = "/usr/lib/modules"
 		}
-		if err := w.CopyFile(path.Join(usrpath, kernelRelease, v)); err != nil {
-			return err
+		if _, err := os.Stat(path.Join(usrpath, kernelRelease, v)); err == nil {
+			w.CopyFile(path.Join(usrpath, kernelRelease, v))
+		} else {
+			w.CopyFile(path.Join(usrpath, kernelRelease, v + ".xz"))
 		}
 	}
 	return nil
