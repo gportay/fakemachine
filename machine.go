@@ -538,6 +538,10 @@ func (m *Machine) startup(command string, extracontent [][2]string) (int, error)
 	if err != nil {
 		return -1, err
 	}
+	KernelPath := "/boot/vmlinuz-" + kernelRelease
+	if _, err := os.Stat(KernelPath); err != nil {
+		KernelPath = "/boot/vmlinuz-linux"
+	}
 	memory := fmt.Sprintf("%d", m.memory)
 	numcpus := fmt.Sprintf("%d", m.numcpus)
 	qemuargs := []string{"qemu-system-x86_64",
@@ -545,7 +549,7 @@ func (m *Machine) startup(command string, extracontent [][2]string) (int, error)
 		"-smp", numcpus,
 		"-m", memory,
 		"-enable-kvm",
-		"-kernel", "/boot/vmlinuz-" + kernelRelease,
+		"-kernel", KernelPath,
 		"-initrd", InitrdPath,
 		"-display", "none",
 		"-no-reboot"}
