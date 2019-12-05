@@ -381,8 +381,10 @@ func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper) error {
 		}
 		if _, err := os.Stat(path.Join(usrpath, kernelRelease, v)); err == nil {
 			w.CopyFile(path.Join(usrpath, kernelRelease, v))
-		} else {
+		} else if _, err := os.Stat(path.Join(usrpath, kernelRelease, v + ".xz")); err == nil {
 			w.CopyFile(path.Join(usrpath, kernelRelease, v + ".xz"))
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: Couldn't find %v\n", v)
 		}
 	}
 	return nil
