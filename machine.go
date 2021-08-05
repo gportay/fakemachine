@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"text/template"
@@ -74,7 +75,7 @@ func getModDepends(modname string, kernelRelease string) []string {
 	return modlist
 }
 
-func (m *Machine) copyModules(w *writerhelper.WriterHelper, modname string, copiedModules map[string]bool) error {
+func (m *Machine) copyModules(w *writerhelper.WriterHelper, modname string, suffixes map[string]writerhelper.Transformer, copiedModules map[string]bool) error {
 	release, _ := m.backend.KernelRelease()
 	modpath := getModPath(modname, release)
 	if modpath == "" {
@@ -90,15 +91,31 @@ func (m *Machine) copyModules(w *writerhelper.WriterHelper, modname string, copi
 		prefix = "/usr"
 	}
 
-	if err := w.CopyFile(prefix + modpath); err != nil {
-		return err
+	found := false
+	for suffix, fn := range suffixes {
+		if strings.HasSuffix(modpath, suffix) {
+			if _, err := os.Stat(modpath); err == nil {
+				basepath := strings.TrimSuffix(modpath, suffix)
+				if err := w.TransformFileTo(modpath, prefix + basepath, fn); err != nil {
+					return err
+				}
+				found = true
+				break
+			}
+		}
+	}
+	// No compressed module found, doing a plain copy
+	if !found {
+		if err := w.CopyFile(prefix + modpath); err != nil {
+			return err
+		}
 	}
 
 	copiedModules[modname] = true;
 
 	deplist := getModDepends(modname, release)
 	for _, mod := range deplist {
-		if err := m.copyModules(w, mod, copiedModules); err != nil {
+		if err := m.copyModules(w, mod, suffixes, copiedModules); err != nil {
 			return err
 		}
 	}
@@ -461,12 +478,114 @@ func (m Machine) generateFstab(w *writerhelper.WriterHelper, backend backend) {
 	w.WriteFile("/etc/fstab", strings.Join(fstab, "\n"), 0755)
 }
 
+func stripModuleSuffixes(module string, suffixes []string) string {
+	for _, suffix := range(suffixes) {
+		if strings.HasSuffix(module, suffix) {
+			return strings.TrimSuffix(module, suffix)
+		}
+	}
+	return module
+}
+
+func (m *Machine) buildModuleMap(moddir string, suffixes []string) (map[string][]string, error) {
+	f, err := os.Open(path.Join(moddir, "modules.dep"))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	graph := make(map[string][]string)
+	line := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		parts := strings.Split(scanner.Text(), ":")
+		if len(parts) > 2 {
+			return nil, fmt.Errorf("Corrupt or invalid line %d found in modules.dep", line)
+		}
+		if len(parts) == 0 {
+			continue
+		}
+
+		var module = stripModuleSuffixes(parts[0], suffixes)
+		graph[module] = make([]string, 0)
+		if len(parts) > 1 {
+			deps := strings.Split(parts[1], " ")
+			for _, dep := range(deps) {
+				graph[module] = append(graph[module], stripModuleSuffixes(dep, suffixes))
+			}
+		}
+	}
+
+	return graph, nil
+}
+
+func (m *Machine) pruneModuleMap(modules []string, graph map[string][]string) map[string][]string {
+	result := make(map[string][]string)
+	for _, m := range modules {
+		if v, ok := graph[m]; ok {
+			result[m] = v
+		} else {
+			result[m] = make([]string, 0)
+		}
+	}
+	return result
+}
+
+func (m *Machine) findRequiredModules(modules []string, graph map[string][]string) []string {
+	seen := make(map[string]bool)
+
+	result := make([]string, 0)
+	stack := modules
+	for len(stack) > 0 {
+		index := len(stack)-1
+		item := stack[index]
+		stack = stack[:index]
+
+		if seen[item] {
+			continue
+		}
+		result = append(result, item)
+		seen[item] = true
+		if val, ok := graph[item]; ok {
+			for _, dep := range val {
+				stack = append(stack, dep)
+			}
+		}
+	}
+	return result
+}
+
+func (m *Machine) generateModulesDep(w *writerhelper.WriterHelper, moddir string, graph map[string][]string) {
+	keys := make([]string, len(graph))
+	i := 0
+	for k := range graph {
+		keys[i] = k
+		i += 1
+	}
+
+	sort.Strings(keys)
+
+	output := make([]string, len(keys))
+	for i, k := range keys {
+		output[i] = fmt.Sprintf("%s: %s", k, strings.Join(graph[k], " "))
+	}
+
+	path := path.Join(moddir, "modules.dep")
+	w.WriteFile(path, strings.Join(output, "\n"), 0644)
+}
+
 func (m *Machine) SetEnviron(environ []string) {
 	m.Environ = environ
 }
 
 
 func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper, moddir string, modules []string) error {
+	suffixes := map[string]writerhelper.Transformer {
+		".gz": GzipDecompressor,
+		".xz": XzDecompressor,
+		".zst": ZstdDecompressor,
+	}
+
 	if len(modules) == 0 {
 		return nil
 	}
@@ -492,10 +611,26 @@ func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper, moddir strin
 	copiedModules := make(map[string]bool)
 
 	for _, modname := range modules  {
-		if err := m.copyModules(w, modname, copiedModules); err != nil {
+		if err := m.copyModules(w, modname, suffixes, copiedModules); err != nil {
 			return err
 		}
 	}
+
+	suffixKeys := make([]string, len(suffixes))
+	i := 0
+	for k := range suffixes {
+		suffixKeys[i] = k
+		i++
+	}
+
+	graph, err := m.buildModuleMap(moddir, suffixKeys)
+	if err != nil {
+		return err
+	}
+	requiredModules := m.findRequiredModules(modules, graph)
+
+	graph = m.pruneModuleMap(requiredModules, graph)
+	m.generateModulesDep(w, moddir, graph)
 	return nil
 }
 
